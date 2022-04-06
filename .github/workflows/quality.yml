@@ -72,7 +72,7 @@ jobs:
 
   sonar-scan:
     #if: contains(github.head_ref, 'fix') || contains(github.head_ref, 'release') || contains(github.head_ref, 'feature')
-    uses: adeo/dxp--reusable-github-actions-workflows/.github/workflows/sonar-scan.yml@main
+    uses: adeo/dxp--reusable-github-actions-workflows/.github/workflows/sonar-scan.yml@73000e334fbe941d1943db5fc6aa463ab31a562e
     needs: [config]
     with:
       vault-namespace: ${{ needs.config.outputs.VAULT_NAMESPACE }}
