@@ -60,7 +60,7 @@ jobs:
 
   java-run-test:
     #if: contains(github.head_ref, 'fix') || contains(github.head_ref, 'release') || contains(github.head_ref, 'feature')
-    uses: adeo/dxp--reusable-github-actions-workflows/.github/workflows/java-run-test@main
+    uses: adeo/dxp--reusable-github-actions-workflows/.github/workflows/java-run-test.yml@main
     needs: [config]
     with:
       vault-namespace: ${{ needs.config.outputs.VAULT_NAMESPACE }}
