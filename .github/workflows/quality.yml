@@ -1,0 +1,83 @@
+name: 'Quality Workflow'
+on:
+  push:
+    branches:
+      - 'release/**'
+      - 'feature/**'
+      - 'hotfix/**'
+      - 'fix/**'
+      - 'develop'
+  workflow_dispatch:
+
+jobs:
+  config:
+    runs-on: self-hosted
+    outputs:
+      VAULT_NAMESPACE: ${{steps.config.outputs.vault_namespace}}
+      JFROG_WRITER: ${{steps.config.outputs.jfrog_writer}}
+      TURBINE_COMPONENT_NAME: ${{steps.config.outputs.turbine_component_name}}
+      DOCKER_REGISTRY: ${{steps.config.outputs.docker_registry}}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v2
+      - name: Get app infos
+        id: config
+        run: |
+          source .github/files/.env
+          echo "::set-output name=vault_namespace::$VAULT_NAMESPACE"
+          echo "::set-output name=jfrog_writer::$JFROG_WRITER"
+          echo "::set-output name=turbine_component_name::$TURBINE_COMPONENT_NAME"
+          echo "::set-output name=docker_registry::$DOCKER_REGISTRY"
+
+  java-build:
+    uses: adeo/dxp--reusable-github-actions-workflows/.github/workflows/java-build.yml@v1
+    needs: [config]
+    with:
+#      node-version: '14'
+      push-snapshot: false
+      vault-namespace: ${{ needs.config.outputs.VAULT_NAMESPACE }}
+      vault-secrets: | # pragma: allowlist secret
+        secret/data/ci/jfrog node_auth_token | NODE_AUTH_TOKEN;
+    secrets:
+      vault-role-id: ${{ secrets.VAULT_ROLE_ID }}
+      vault-secret-id: ${{ secrets.VAULT_SECRET_ID }}
+
+  docker-test-build:
+    needs: [config]
+    uses: adeo/dxp--reusable-github-actions-workflows/.github/workflows/java-docker-build.yml@v1
+    with:
+      push-image: 'false'
+      docker-image-repository: ${{ needs.config.outputs.DOCKER_REGISTRY }}
+      docker-image-name: ${{ needs.config.outputs.TURBINE_COMPONENT_NAME }}
+      docker-writer-user-name: ${{ needs.config.outputs.JFROG_WRITER }}
+      vault-namespace: ${{ needs.config.outputs.VAULT_NAMESPACE }}
+      vault-secrets: |
+        secret/data/ci/jfrog node_auth_token | NODE_AUTH_TOKEN;
+        secret/data/ci/jfrog jfrog_user_password_writer | DOCKER_WRITER_USER_TOKEN;
+    secrets:
+      vault-role-id: ${{ secrets.VAULT_ROLE_ID }}
+      vault-secret-id: ${{ secrets.VAULT_SECRET_ID }}
+
+  java-run-test:
+    #if: contains(github.head_ref, 'fix') || contains(github.head_ref, 'release') || contains(github.head_ref, 'feature')
+    uses: adeo/dxp--reusable-github-actions-workflows/.github/workflows/java-run-test@main
+    needs: [config]
+    with:
+      vault-namespace: ${{ needs.config.outputs.VAULT_NAMESPACE }}
+      vault-secrets: |
+        secret/data/ci/sonar sonar_token | SONAR_TOKEN;
+    secrets:
+      vault-role-id: ${{ secrets.VAULT_ROLE_ID }}
+      vault-secret-id: ${{ secrets.VAULT_SECRET_ID }}
+
+  sonar-scan:
+    #if: contains(github.head_ref, 'fix') || contains(github.head_ref, 'release') || contains(github.head_ref, 'feature')
+    uses: adeo/dxp--reusable-github-actions-workflows/.github/workflows/sonar-scan.yml@main
+    needs: [config]
+    with:
+      vault-namespace: ${{ needs.config.outputs.VAULT_NAMESPACE }}
+      vault-secrets: |
+        secret/data/ci/sonar sonar_token | SONAR_TOKEN;
+    secrets:
+      vault-role-id: ${{ secrets.VAULT_ROLE_ID }}
+      vault-secret-id: ${{ secrets.VAULT_SECRET_ID }}

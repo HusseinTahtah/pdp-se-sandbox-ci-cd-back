@@ -1,0 +1,71 @@
+name: 'Push & deploy to develop'
+on:
+  push:
+    branches:
+      - develop
+
+jobs:
+  config:
+    name: Configuration step
+    runs-on: [self-hosted,service,x64]
+    outputs:
+      APP_VERSION: ${{ steps.config.outputs.APP_VERSION }}
+      APP_NAME: ${{ steps.config.outputs.APP_NAME }}
+      VAULT_NAMESPACE: ${{steps.config.outputs.vault_namespace}}
+      JFROG_WRITER: ${{steps.config.outputs.jfrog_writer}}
+      TURBINE_COMPONENT_NAME: ${{steps.config.outputs.turbine_component_name}}
+      DOCKER_REGISTRY: ${{steps.config.outputs.docker_registry}}
+      TURBINE_ENVIRONMENT: ${{steps.config.outputs.turbine_environment}}
+    steps:
+      - name: config
+        id: config
+        run: |
+          source .github/files/.env
+          APP_NAME=$(jq '.name'  package.json | sed -e 's/^"//' -e 's/"$//' )
+          APP_VERSION=$(jq '.version'  package.json | sed -e 's/^"//' -e 's/"$//')-$( echo ${GITHUB_HEAD_REF,,} | cut -d/ -f2 | tr . - )
+          echo "::set-output name=APP_VERSION::$APP_VERSION"
+          echo "::set-output name=vault_namespace::$VAULT_NAMESPACE"
+          echo "::set-output name=APP_NAME::$APP_NAME"
+          echo "::set-output name=jfrog_writer::$JFROG_WRITER"
+          echo "::set-output name=turbine_component_name::$TURBINE_COMPONENT_NAME"
+          echo "::set-output name=docker_registry::$DOCKER_REGISTRY"
+          echo "::set-output name=turbine_environment::$TURBINE_ENVIRONMENT"
+
+      ####
+      #### Retrieve a DATE + TIME temp.
+      ####
+      - name: Create tag
+        id: tag_image
+        run: echo "::set-output name=TAG_IMAGE::${TAG_IMAGE_PREFIX}-$(date +'%Y-%m-%d_%H-%M-%S')"
+
+  docker-build-push:
+    needs: [config]
+    uses: adeo/dxp--reusable-github-actions-workflows/.github/workflows/java-docker-build.yml@v1
+    with:
+      docker-image-repository: ${{ needs.config.outputs.DOCKER_REGISTRY }}
+      docker-image-name: ${{ needs.config.outputs.TURBINE_COMPONENT_NAME }}
+      docker-writer-user-name: ${{ needs.config.outputs.JFROG_WRITER }}
+      docker-context: './'
+      dockerfile-path: './Dockerfile'
+      vault-namespace: ${{ needs.config.outputs.VAULT_NAMESPACE }}
+      vault-secrets: |
+        secret/data/ci/jfrog jfrog_user_login_writer | DOCKER_WRITER_USER_TOKEN;
+      build-args: |
+        JFROG_READER=${{ env.JFROG_READER }}
+        JFROG_PASSWORD=${{ env.JFROG_READER_PASSWD }}
+        JFROG_MAIL=${{ env.JFROG_MAIL }}
+    secrets:
+      vault-role-id: ${{ secrets.VAULT_ROLE_ID }}
+      vault-secret-id: ${{ secrets.VAULT_SECRET_ID }}
+
+  turbine-deploy-component:
+    uses: adeo/dxp--reusable-github-actions-workflows/.github/workflows/turbine-deploy.yml@v1
+    with:
+      vault-namespace: ${{ needs.config.outputs.VAULT_NAMESPACE }}
+      vault-secrets: secret/data/cd/turbine tuc-token | TURBINE_TOKEN
+      turbine-component-name: ${{ needs.config.outputs.TURBINE_COMPONENT_NAME }}
+      turbine-component-version: ${{ steps.tag_image.outputs.TAG_IMAGE }}
+      turbine-environment-name: ${{ needs.config.outputs.TURBINE_ENVIRONMENT }}
+    secrets:
+      vault-role-id: ${{ secrets.VAULT_ROLE_ID }}
+      vault-secret-id: ${{ secrets.VAULT_SECRET_ID }}
