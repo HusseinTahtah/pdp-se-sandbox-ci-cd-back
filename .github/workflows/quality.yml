@@ -30,7 +30,7 @@ jobs:
           echo "::set-output name=docker_registry::$DOCKER_REGISTRY"
 
   java-build:
-    uses: adeo/dxp--reusable-github-actions-workflows/.github/workflows/java-build.yml@main
+    uses: adeo/dxp--reusable-github-actions-workflows/.github/workflows/java-build.yml@v1
     needs: [config]
     with:
 #      node-version: '14'
@@ -44,7 +44,7 @@ jobs:
 
   docker-test-build:
     needs: [config]
-    uses: adeo/dxp--reusable-github-actions-workflows/.github/workflows/java-docker-build.yml@main
+    uses: adeo/dxp--reusable-github-actions-workflows/.github/workflows/java-docker-build.yml@v1
     with:
       push-image: 'false'
       docker-image-repository: ${{ needs.config.outputs.DOCKER_REGISTRY }}
@@ -60,7 +60,7 @@ jobs:
 
   java-run-test:
     #if: contains(github.head_ref, 'fix') || contains(github.head_ref, 'release') || contains(github.head_ref, 'feature')
-    uses: adeo/dxp--reusable-github-actions-workflows/.github/workflows/java-run-test.yml@main
+    uses: adeo/dxp--reusable-github-actions-workflows/.github/workflows/java-run-test.yml@v1
     needs: [config]
     with:
       vault-namespace: ${{ needs.config.outputs.VAULT_NAMESPACE }}
