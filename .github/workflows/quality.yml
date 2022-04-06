@@ -30,7 +30,7 @@ jobs:
           echo "::set-output name=docker_registry::$DOCKER_REGISTRY"
 
   java-build:
-    uses: adeo/dxp--reusable-github-actions-workflows/.github/workflows/java-build.yml
+    uses: adeo/dxp--reusable-github-actions-workflows/.github/workflows/java-build.yml@main
     needs: [config]
     with:
 #      node-version: '14'
