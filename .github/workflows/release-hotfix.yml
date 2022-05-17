@@ -1,25 +1,21 @@
-name: "Dev Branch Workflow"
+name: "Release / Hotfix"
 on:
-  pull_request:
-    types:
-      - closed
+  push:
     branches:
-      - "develop"
+      - "release/**"
+      - "hotfix/**"
 jobs:
   config:
-    if: ${{ github.event.pull_request.merged }}
     uses: ./.github/workflows/factory-config.yml
 
   dynamic-var:
-    if: ${{ github.event.pull_request.merged }}
     uses: ./.github/workflows/factory-set-dynamic-vars.yml
     with:
       language: "java"
 
   docker-build-push:
-    if: ${{ github.event.pull_request.merged }}
-    needs: [config]
-    uses: adeo/dxp--reusable-github-actions-workflows/.github/workflows/java-docker-build.yml@v1
+    needs: [config, dynamic-var]
+    uses: adeo/dxp--reusable-github-actions-workflows/.github/workflows/node-docker-build.yml@v1
     with:
       docker-image-repository: ${{ needs.dynamic-var.outputs.DOCKER_REGISTRY }}
       docker-image-tag: ${{ needs.dynamic-var.outputs.TAG_IMAGE }}
@@ -27,13 +23,12 @@ jobs:
       docker-writer-user-name: ${{ needs.config.outputs.JFROG_WRITER }}
       vault-namespace: ${{ needs.config.outputs.VAULT_NAMESPACE }}
       vault-secrets: |
-        secret/data/ci/jfrog jfrog_user_login_writer | DOCKER_WRITER_USER_TOKEN;
+        secret/data/ci/jfrog jfrog_user_password_writer  | DOCKER_WRITER_USER_TOKEN;
     secrets:
       vault-role-id: ${{ secrets.VAULT_ROLE_ID }}
       vault-secret-id: ${{ secrets.VAULT_SECRET_ID }}
 
-  turbine-deploy-component-dev:
-    if: ${{ github.event.pull_request.merged }}
+  turbine-deploy-component:
     uses: adeo/dxp--reusable-github-actions-workflows/.github/workflows/turbine-deploy.yml@v1
     needs: [config, dynamic-var]
     with:
@@ -41,7 +36,28 @@ jobs:
       vault-namespace: ${{ needs.config.outputs.VAULT_NAMESPACE }}
       vault-secrets: secret/data/cd/turbine tuc-token | TURBINE_TOKEN
       turbine-component-name: ${{ needs.config.outputs.TURBINE_COMPONENT_NAME }}
-      turbine-environment-name: ${{ needs.config.outputs.TURBINE_ENVIRONMENT_DEV }}
+      turbine-environment-name: ${{ needs.dynamic-var.outputs.TURBINE_ENVIRONMENT }}
     secrets:
       vault-role-id: ${{ secrets.VAULT_ROLE_ID }}
       vault-secret-id: ${{ secrets.VAULT_SECRET_ID }}
+
+  create-pull-requests:
+    name: Release / hotfix Create PR to DEV && MAIN
+    runs-on: ubuntu-20.04
+    steps:
+      - name: Checkout sources
+        uses: actions/checkout@v2
+
+      - name: Create pull-request to Develop
+        uses: repo-sync/pull-request@v2
+        with:
+          destination_branch: "develop"
+          pr_title: "Release Pull Request from ${GITHUB_REF#refs/heads/} to Develop Branch"
+          github_token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Create pull-request to Main
+        uses: repo-sync/pull-request@v2
+        with:
+          destination_branch: "main"
+          pr_title: "Release Pull Request from ${GITHUB_REF#refs/heads/} to Main Branch"
+          github_token: ${{ secrets.GITHUB_TOKEN }}

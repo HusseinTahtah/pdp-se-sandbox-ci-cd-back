@@ -1,0 +1,35 @@
+name: "Semantic Release"
+on:
+  # For One flow
+  push:
+    branches:
+      - main
+
+jobs:
+  release:
+    uses: adeo/dxp--reusable-github-actions-workflows/.github/workflows/semantic-release.yml@v1
+    with:
+      language: "java"
+      node-version: 14
+      vault-namespace: "adeo/pdpse"
+      vault-secrets: |
+        secret/data/ci/github github_personal_token | GITHUB_PERSONAL_TOKEN ;
+        secret/data/ci/jfrog node_auth_token | NODE_AUTH_TOKEN;
+    secrets:
+      vault-role-id: ${{ secrets.VAULT_ROLE_ID }}
+      vault-secret-id: ${{ secrets.VAULT_SECRET_ID }}
+
+  create-pull-requests:
+    name: Release / hotfix Create PR to DEV
+    needs: [release]
+    runs-on: ubuntu-20.04
+    steps:
+      - name: Checkout sources
+        uses: actions/checkout@v2
+
+      - name: Create pull-request to Develop
+        uses: repo-sync/pull-request@v2
+        with:
+          destination_branch: "develop"
+          pr_title: "Release Pull Request from ${GITHUB_REF#refs/heads/} to Develop Branch"
+          github_token: ${{ secrets.GITHUB_TOKEN }}
