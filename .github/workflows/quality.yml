@@ -37,7 +37,7 @@ jobs:
       push-snapshot: false
       vault-namespace: ${{ needs.config.outputs.VAULT_NAMESPACE }}
       vault-secrets: | # pragma: allowlist secret
-        secret/data/ci/jfrog node_auth_token | NODE_AUTH_TOKEN;
+        secret/data/ci/jfrog java_auth_token | JAVA_AUTH_TOKEN;
     secrets:
       vault-role-id: ${{ secrets.VAULT_ROLE_ID }}
       vault-secret-id: ${{ secrets.VAULT_SECRET_ID }}
