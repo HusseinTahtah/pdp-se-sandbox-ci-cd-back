@@ -1,0 +1,178 @@
+name: Set Dynamic Vars
+on:
+  workflow_call:
+    inputs:
+      language:
+        description: |
+          The target language (node or java)
+        # possibles values : 'node' or 'java'
+        default: "node"
+        required: false
+        type: string
+
+    outputs:
+      APP_VERSION:
+        description: "The application Json version"
+        value: ${{ jobs.config.outputs.APP_VERSION }}
+      APP_NAME:
+        description: "The application Name"
+        value: ${{ jobs.config.outputs.APP_NAME }}
+      TAG_IMAGE:
+        description: "The application Tag Image name"
+        value: ${{ jobs.config.outputs.TAG_IMAGE }}
+      DOCKER_REGISTRY:
+        description: "The application Docker Registry Url"
+        value: ${{ jobs.config.outputs.DOCKER_REGISTRY }}
+      DOCKER_IMAGE_TO_DELETE:
+        description: "The docker image to delete after merge Release or Hotifx"
+        value: ${{ jobs.config.outputs.DOCKER_IMAGE_TO_DELETE }}
+      TURBINE_ENVIRONMENT:
+        description: "The turbine environment name"
+        value: ${{ jobs.config.outputs.TURBINE_ENVIRONMENT }}
+      
+jobs:
+  config:
+    outputs:
+      APP_VERSION: ${{ steps.config.outputs.app_version }}
+      APP_NAME: ${{ steps.config.outputs.app_name }}
+      TAG_IMAGE: ${{ steps.config.outputs.tag_image }}
+      DOCKER_REGISTRY: ${{ steps.config.outputs.docker_registry }}
+      DOCKER_IMAGE_TO_DELETE: ${{ steps.config.outputs.docker_image_to_delete }}
+      TURBINE_ENVIRONMENT: ${{ steps.config.outputs.turbine_environment }}
+    name: Configuration VARS
+    runs-on: [self-hosted, service, x64]
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v2
+
+      - name: Inject slug/short variables
+        uses: rlespinasse/github-slug-action@v4
+
+      - name: Print slug/short variables
+        run: |
+          echo "Slug variables"
+          echo " - ${{ env.GITHUB_REF_SLUG }}"    
+          echo " - ${{ env.GITHUB_HEAD_REF_SLUG }}"
+          echo " - ${{ env.GITHUB_BASE_REF_SLUG }}"
+          echo " - ${{ env.GITHUB_REPOSITORY_SLUG }}"
+          # output e.g. : master feat-new-feature v1.0.0 product-1.0.0-rc.2 new-awesome-product
+          echo "Slug URL variables"
+          echo " - ${{ env.GITHUB_REF_SLUG_URL }}"
+          echo " - ${{ env.GITHUB_HEAD_REF_SLUG_URL }}"
+          echo " - ${{ env.GITHUB_BASE_REF_SLUG_URL }}"
+          echo " - ${{ env.GITHUB_REPOSITORY_SLUG_URL }}"
+          # output e.g. : master feat-new-feature v1-0-0 product-1-0-0-rc-2 new-awesome-product
+          echo "Short SHA variables"
+          echo " - ${{ env.GITHUB_SHA_SHORT }}"
+          # output e.g. : ffac537e
+
+      - name: "Get branch name Pull Request (merged)"
+        if: github.event.pull_request.merged == true
+        shell: bash
+        run: echo "BRANCH=${GITHUB_HEAD_REF}" >> $GITHUB_ENV
+        env:
+          BRANCH: ${GITHUB_HEAD_REF}
+
+      - name: "Get branch name (Push)"
+        if: github.event_name == 'push'
+        shell: bash
+        run: echo "BRANCH=${GITHUB_REF#refs/heads/}" >> $GITHUB_ENV
+
+      - name: "App name for Node"
+        if: ${{ inputs.language == 'node' }}
+        run: |
+          echo "APP_NAME=$(jq -r '.name' package.json)" >> $GITHUB_ENV
+          echo "APP_VERSION=$(jq -r '.version' package.json)" >> $GITHUB_ENV
+
+      - name: "App name for Java"
+        if: ${{ inputs.language == 'java' }}
+        run: |
+          if [[ -f pom.xml ]]; then
+            echo "APP_VERSION=$( mvn help:evaluate -Dexpression=project.version -q -DforceStdout )" >> $GITHUB_ENV
+          else
+            echo "No xml pom find"
+            exit 1
+          fi
+        #Add Python
+        #Add Graddle
+      
+      - name: RELEASE - Get version from branch
+        if: contains(env.BRANCH, 'release') || contains(env.BRANCH, 'hotfix')
+        run: |
+          echo "RELEASE_HOTFIX_VERSION=${BRANCH##*/}" >> $GITHUB_ENV
+
+      - name: config
+        shell: bash
+        id: config
+        run: |
+          source .github/files/.env
+          echo "::set-output name=app_name::$APP_NAME"
+          echo "::set-output name=app_version::$APP_VERSION"
+
+          if [[ "$BRANCH" =~ "feature" || "$BRANCH" =~ "fix" && $BRANCH != *"hotfix"* || "$BRANCH" =~ "feat" || "$BRANCH" =~ "develop" ]]; then
+            
+            VERSION_DEV=$APP_VERSION-$(date +'%Y-%m-%d_%H-%M-%S');
+
+            echo "----- Case: FEATURE/FIX -----"
+            echo "::set-output name=tag_image::$VERSION_DEV"
+            echo "::set-output name=docker_registry::${DOCKER_REGISTRY_DEV}"
+
+          elif [[ "$BRANCH" =~ "release" || "$BRANCH" =~ "hotfix" ]]; then
+ 
+            echo "----- Case: RELEASE/HOTFIX -----"
+            if [[ "$GITHUB_REF" =~ "release" ]]; then
+              # case: Push on release branch (update uat env and create -rc)
+              echo "----- Case: RELEASE/HOTFIX case 1 -----"
+              echo "::set-output name=tag_image::$(echo $RELEASE_HOTFIX_VERSION-rc)"
+              echo "::set-output name=docker_registry::${DOCKER_REGISTRY_RELEASE}"
+              echo "::set-output name=turbine_environment::${TURBINE_ENVIRONMENT_UAT1}"
+
+            elif [[ "$GITHUB_REF" =~ "hotfix" ]]; then 
+              # case: Push on hotfix branch (update prep env and create -hotfix)
+              echo "----- Case: RELEASE/HOTFIX case 2 -----"
+              echo "::set-output name=tag_image::$(echo $RELEASE_HOTFIX_VERSION-hotfix)"
+              echo "::set-output name=docker_registry::${DOCKER_REGISTRY_RELEASE}"
+              echo "::set-output name=turbine_environment::${TURBINE_ENVIRONMENT_PREP}"
+
+            elif [[ "$GITHUB_REF" =~ "develop" ]]; then
+              # case: Merge Release on Develop branch
+              VERSION_DEV=$RELEASE_HOTFIX_VERSION-$(date +'%Y-%m-%d_%H-%M-%S');
+              echo "----- Case: RELEASE/HOTFIX case 3 -----"
+              echo "::set-output name=tag_image::$(echo $VERSION_DEV)"
+              echo "::set-output name=docker_registry::${DOCKER_REGISTRY_DEV}"
+
+            elif [[ "$GITHUB_REF" =~ "main" ]]; then
+              # case: Merge Release on Main branch
+              if [[ "$BRANCH" =~ "release" ]]; then
+                echo "::set-output name=docker_image_to_delete::$(echo $RELEASE_HOTFIX_VERSION-rc)"
+              else
+                # case hotfix
+                echo "::set-output name=docker_image_to_delete::$(echo $RELEASE_HOTFIX_VERSION-hotfix)"
+              fi
+              echo "----- Case: RELEASE/HOTFIX case 4 -----"
+              echo "::set-output name=tag_image::$(echo $RELEASE_HOTFIX_VERSION)"
+              echo "::set-output name=docker_registry::${DOCKER_REGISTRY_RELEASE}"
+            else
+              echo "----- Case: RELEASE/HOTFIX case 5 -----"
+            fi
+
+          fi
+
+          #DEBUG
+          echo "APP_NAME $APP_NAME"
+          echo "APP_VERSION $APP_VERSION"
+          echo "value of BRANCH: $BRANCH"
+          echo "github ref (!PR): ${GITHUB_REF#refs/heads/}"
+          echo "github head ref (PR): ${GITHUB_HEAD_REF}"
+
+  debug-var:
+    needs: [config]
+    name: Debugg VAR
+    runs-on: ubuntu-20.04
+    steps:
+      - name: DEBUGG VARS
+        run: |
+          echo "APP_NAME : ${{needs.config.outputs.APP_NAME}}"
+          echo "APP_VERSION : ${{needs.config.outputs.APP_VERSION}}"
+          echo "TAG_IMAGE value : ${{needs.config.outputs.TAG_IMAGE}}"
+          echo "DOCKER_REGISTRY : ${{needs.config.outputs.DOCKER_REGISTRY}}"
